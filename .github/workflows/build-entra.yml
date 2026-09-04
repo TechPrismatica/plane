@@ -1,0 +1,111 @@
+# .github/workflows/build-entra.yml
+name: Build Entra images
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag (e.g. v1.4.2-entra.1)"
+        required: true
+        type: string
+  push:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  OWNER: techprismatica
+
+jobs:
+  codemod:
+    name: Apply frontend codemod
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Fails loudly if upstream moved an anchor. Do not make this
+      # continue-on-error: a silent miss ships images with no sign-in button.
+      - name: Run codemod
+        run: node scripts/entra/apply-frontend.mjs
+      - name: Verify codemod is idempotent
+        run: |
+          # Stage the first run's changes so `git diff` below compares the
+          # working tree only against the SECOND run's output. Comparing
+          # straight to HEAD here would always show the first run's edits
+          # and fail unconditionally -- that would make this check blind to
+          # the actual thing it exists to catch (a codemod that keeps
+          # changing the tree on repeat runs).
+          git add -A
+          node scripts/entra/apply-frontend.mjs
+          git diff --exit-code
+      - name: Upload patched tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-tree
+          include-hidden-files: true
+          # .git is excluded: it is not needed to build any image (all four
+          # Dockerfiles are content-only, none shells out to git) and it is
+          # by far the largest thing in the tree, so shipping it through the
+          # artifact would only slow every download down for nothing.
+          path: |
+            .
+            !.git/**
+
+  build:
+    name: Build ${{ matrix.component }}
+    runs-on: ubuntu-22.04
+    needs: [codemod]
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            dockerfile: ./apps/api/Dockerfile.api
+            context: ./apps/api
+          - component: frontend
+            dockerfile: ./apps/web/Dockerfile.web
+            context: .
+          - component: space
+            dockerfile: ./apps/space/Dockerfile.space
+            context: .
+          - component: admin
+            dockerfile: ./apps/admin/Dockerfile.admin
+            context: .
+    steps:
+      - name: Download patched tree
+        uses: actions/download-artifact@v4
+        with:
+          name: patched-tree
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$INPUT_TAG" ]; then
+            echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=v1.4.2-entra.sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/plane-${{ matrix.component }}:${{ steps.tag.outputs.value }}
+          cache-from: type=gha,scope=${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.component }}
