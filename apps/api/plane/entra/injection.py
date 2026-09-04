@@ -8,7 +8,10 @@ Django's app registry can call AppConfig.ready() more than once (test
 runners, some management commands), so every function here is idempotent.
 """
 
+import os
+
 from plane.entra.constants import ENTRA_ERROR_CODES
+from plane.license.utils.instance_value import get_configuration_value
 
 
 def inject_error_codes():
@@ -51,7 +54,43 @@ def inject_config_variables():
             instance_config_variables.append(variable)
 
 
+def patch_instance_endpoint():
+    """Add is_microsoft_enabled to /api/instances/.
+
+    The web, space and admin apps decide whether to render a provider's
+    sign-in button from this payload, and InstanceEndpoint.get offers no
+    extension point. The wrapper runs outside the view's @cache_response, so
+    it re-evaluates the flag on a cache hit and never writes to the cache.
+
+    InstanceEndpoint.get nests provider flags under response.data["config"]
+    (see packages/types/src/instance/base.ts: IInstanceInfo.config), so that
+    is where the flag is added. The early-return path (no Instance row yet)
+    returns {"is_activated": False, "is_setup_done": False} with no "config"
+    key at all; the guard below leaves that response untouched.
+    """
+    from plane.license.api.views.instance import InstanceEndpoint
+
+    if getattr(InstanceEndpoint, "_entra_patched", False):
+        return
+
+    original_get = InstanceEndpoint.get
+
+    def get(self, request, *args, **kwargs):
+        response = original_get(self, request, *args, **kwargs)
+        data = getattr(response, "data", None)
+        if isinstance(data, dict) and isinstance(data.get("config"), dict):
+            (is_enabled,) = get_configuration_value(
+                [{"key": "IS_MICROSOFT_ENABLED", "default": os.environ.get("IS_MICROSOFT_ENABLED", "0")}]
+            )
+            data["config"]["is_microsoft_enabled"] = is_enabled == "1"
+        return response
+
+    InstanceEndpoint.get = get
+    InstanceEndpoint._entra_patched = True
+
+
 def inject_all():
     inject_error_codes()
     inject_config_variables()
     inject_urls()
+    patch_instance_endpoint()
