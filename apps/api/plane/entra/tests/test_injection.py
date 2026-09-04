@@ -37,3 +37,31 @@ def test_injection_is_idempotent():
     inject_all()
     inject_all()
     assert dict(AUTHENTICATION_ERROR_CODES) == before
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "name,path",
+    [
+        ("microsoft-initiate", "/auth/microsoft/"),
+        ("microsoft-callback", "/auth/microsoft/callback/"),
+        ("space-microsoft-initiate", "/auth/spaces/microsoft/"),
+        ("space-microsoft-callback", "/auth/spaces/microsoft/callback/"),
+    ],
+)
+def test_routes_are_injected(name, path):
+    from django.urls import resolve, reverse
+
+    assert reverse(name) == path
+    assert resolve(path).url_name == name
+
+
+@pytest.mark.unit
+def test_url_injection_does_not_duplicate():
+    from plane.authentication import urls as auth_urls
+    from plane.entra.injection import inject_urls
+
+    inject_urls()
+    inject_urls()
+    names = [getattr(p, "name", None) for p in auth_urls.urlpatterns]
+    assert names.count("microsoft-initiate") == 1

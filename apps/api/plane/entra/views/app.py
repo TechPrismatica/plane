@@ -11,7 +11,7 @@ from django.views import View
 
 
 # Module imports
-from plane.authentication.provider.oauth.microsoft import MicrosoftOAuthProvider
+from plane.entra.provider import MicrosoftOAuthProvider
 from plane.authentication.utils.login import user_login
 from plane.authentication.utils.redirection_path import get_redirection_path
 from plane.authentication.utils.user_auth_workflow import post_user_auth_workflow
