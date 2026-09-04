@@ -20,11 +20,17 @@ function copyAssets() {
   }
 }
 
-const edits = [
+export const edits = [
   {
     file: p("packages/types/src/instance/auth.ts"),
     find: `  | "gitea";\n\nexport type TInstanceAuthenticationModeKeys`,
     insert: `  | "gitea"\n  | "microsoft";\n\nexport type TInstanceAuthenticationModeKeys`,
+    // Invariant: a marker must not be a substring of any *other* edit's
+    // insert in the same file -- otherwise this edit silently stops applying
+    // forever the moment that other edit runs first, and the outcome depends
+    // on array order. (See the invariant test in test/run-tests.mjs, which
+    // checks this mechanically across the whole `edits` array.)
+    //
     // Tightened to the newline-separated form this edit's own insert produces.
     // The plain `| "microsoft";` form is also a substring of edit 5's insert
     // (`"gitea" | "microsoft";`), so a bare marker here would silently skip
@@ -45,7 +51,12 @@ const edits = [
       `  | "MICROSOFT_CLIENT_ID"\n  | "MICROSOFT_CLIENT_SECRET"\n` +
       `  | "MICROSOFT_TENANT_ID"\n  | "ENABLE_MICROSOFT_SYNC";\n\n` +
       `export type TInstanceAuthenticationConfigurationKeys =`,
-    marker: "TInstanceMicrosoftAuthenticationConfigurationKeys",
+    // Tightened with the trailing " =" that only this edit's own insert
+    // produces (the type declaration line). The bare type name is also a
+    // substring of the next edit's insert (`| TInstanceMicrosoft...Keys;`,
+    // a union member reference ending in `;` not ` =`), which is the same
+    // collision class as the edit above -- see that comment.
+    marker: "TInstanceMicrosoftAuthenticationConfigurationKeys =",
   },
   {
     file: p("packages/types/src/instance/auth.ts"),
@@ -258,17 +269,23 @@ const edits = [
   ),
 ];
 
-copyAssets();
+// Guard so importing this module (e.g. from the test suite, to reach the
+// exported `edits` array) never runs the CLI's file-mutating side effects --
+// only running it directly (`node apply-frontend.mjs`) does.
+const isMain = import.meta.url === `file://${process.argv[1]}`;
+if (isMain) {
+  copyAssets();
 
-let applied = 0;
-try {
-  for (const edit of edits) if (applyEdit(edit)) applied++;
-} catch (error) {
-  if (error instanceof AnchorMissError) {
-    console.error(`\n[entra codemod] FAILED\n${error.message}\n`);
-    console.error("Upstream moved an anchor. Re-derive it against the current tree.\n");
-    process.exit(1);
+  let applied = 0;
+  try {
+    for (const edit of edits) if (applyEdit(edit)) applied++;
+  } catch (error) {
+    if (error instanceof AnchorMissError) {
+      console.error(`\n[entra codemod] FAILED\n${error.message}\n`);
+      console.error("Upstream moved an anchor. Re-derive it against the current tree.\n");
+      process.exit(1);
+    }
+    throw error;
   }
-  throw error;
+  console.log(`[entra codemod] ${applied} edit(s) applied, ${edits.length - applied} already present`);
 }
-console.log(`[entra codemod] ${applied} edit(s) applied, ${edits.length - applied} already present`);

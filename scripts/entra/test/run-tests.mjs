@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyEdit, AnchorMissError } from "../anchors.mjs";
+import { edits } from "../apply-frontend.mjs";
 
 const dir = mkdtempSync(join(tmpdir(), "entra-codemod-"));
 const file = join(dir, "sample.ts");
@@ -25,4 +26,33 @@ assert.throws(
   (e) => e instanceof AnchorMissError && e.message.includes("sample.ts"),
 );
 
-console.log("codemod harness: 3 passed");
+// 4. invariant: within a single file, no edit's marker may be a substring of
+// any *other* edit's insert. If it is, that other edit's insert makes this
+// edit's idempotency check look satisfied even when its own find/insert has
+// never run -- so it silently, permanently no-ops the moment the other edit
+// runs first. This makes the class of bug fixed for edit 0 (vs edit 5) and
+// edit 2 (vs edit 3) in apply-frontend.mjs structurally impossible to
+// reintroduce, whatever order edits end up in or however many are added.
+{
+  const violations = [];
+  for (let i = 0; i < edits.length; i++) {
+    for (let j = 0; j < edits.length; j++) {
+      if (i === j) continue;
+      if (edits[i].file !== edits[j].file) continue;
+      if (!edits[i].marker) continue;
+      if (edits[j].insert.includes(edits[i].marker)) {
+        violations.push(
+          `edit ${i}'s marker ${JSON.stringify(edits[i].marker)} is a substring of edit ${j}'s insert ` +
+            `(file: ${edits[i].file})`
+        );
+      }
+    }
+  }
+  assert.equal(
+    violations.length,
+    0,
+    `marker/insert collisions found -- these edits will silently skip once run out of order:\n${violations.join("\n")}`
+  );
+}
+
+console.log("codemod harness: 4 passed");
