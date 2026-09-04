@@ -20,7 +20,22 @@ def rf_request(rf):
 
 
 @pytest.mark.unit
-@pytest.mark.parametrize("sentinel", ["common", "organizations", "consumers", "COMMON", " common "])
+@pytest.mark.parametrize(
+    "sentinel",
+    [
+        "common",
+        "organizations",
+        "consumers",
+        "COMMON",
+        " common ",
+        # GUID form of "consumers" (Microsoft's well-known MSA tenant): a
+        # valid authority meaning "every personal Microsoft account", whose
+        # `tid` would otherwise pass both the sentinel check and the tid
+        # check -- reopening the exact hole this set exists to close.
+        "9188040d-6c67-4c5b-b112-36a304b66dad",
+        "9188040D-6C67-4C5B-B112-36A304B66DAD",
+    ],
+)
 def test_multi_tenant_sentinels_are_rejected(rf_request, sentinel):
     from plane.entra.provider import MicrosoftOAuthProvider
 
@@ -31,13 +46,46 @@ def test_multi_tenant_sentinels_are_rejected(rf_request, sentinel):
 
 
 @pytest.mark.unit
-def test_missing_tenant_is_rejected(rf_request):
+@pytest.mark.parametrize("tenant", ["", "   "])
+def test_missing_tenant_is_rejected(rf_request, tenant):
     from plane.entra.provider import MicrosoftOAuthProvider
 
-    with patch("plane.entra.provider.get_configuration_value", return_value=_config(tenant="")):
+    with patch("plane.entra.provider.get_configuration_value", return_value=_config(tenant=tenant)):
         with pytest.raises(AuthenticationException) as exc:
             MicrosoftOAuthProvider(request=rf_request, state="s")
     assert exc.value.error_code == 6900
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "tenant",
+    [
+        "contoso.onmicrosoft.com",
+        "contoso.com/../common",
+    ],
+)
+def test_non_guid_tenant_is_rejected(rf_request, tenant):
+    from plane.entra.provider import MicrosoftOAuthProvider
+
+    with patch("plane.entra.provider.get_configuration_value", return_value=_config(tenant=tenant)):
+        with pytest.raises(AuthenticationException) as exc:
+            MicrosoftOAuthProvider(request=rf_request, state="s")
+    assert exc.value.error_code == 6902
+
+
+@pytest.mark.unit
+def test_uppercase_tenant_guid_is_normalized(rf_request):
+    from plane.entra.provider import MicrosoftOAuthProvider
+
+    with patch(
+        "plane.entra.provider.get_configuration_value",
+        return_value=_config(tenant="11111111-2222-3333-4444-555555555555".upper()),
+    ):
+        provider = MicrosoftOAuthProvider(request=rf_request, state="s")
+    assert provider.tenant_id == "11111111-2222-3333-4444-555555555555"
+    assert provider.get_auth_url().startswith(
+        "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/oauth2/v2.0/authorize?"
+    )
 
 
 @pytest.mark.unit
@@ -84,6 +132,26 @@ def test_tid_mismatch_is_rejected(rf_request):
         with pytest.raises(AuthenticationException) as exc:
             provider.set_token_data()
     assert exc.value.error_code == 6902
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "token_response",
+    [
+        {"access_token": "t", "expires_in": 3600},
+        {"access_token": "t", "expires_in": 3600, "id_token": ""},
+        {"access_token": "t", "expires_in": 3600, "id_token": None},
+    ],
+)
+def test_missing_id_token_is_rejected(rf_request, token_response):
+    from plane.entra.provider import MicrosoftOAuthProvider
+
+    with patch("plane.entra.provider.get_configuration_value", return_value=_config()):
+        provider = MicrosoftOAuthProvider(request=rf_request, code="c")
+    with patch.object(MicrosoftOAuthProvider, "get_user_token", return_value=token_response):
+        with pytest.raises(AuthenticationException) as exc:
+            provider.set_token_data()
+    assert exc.value.error_code == 6901
 
 
 @pytest.mark.unit

@@ -14,7 +14,16 @@ ENTRA_ERROR_CODES = {
 # Entra's multi-tenant authorities. Accepting any of these turns a
 # tenant-restricted login into "any Microsoft account on earth", which is the
 # GHSA-7j95-vh8g-f365 shape Plane's Google provider guards against.
-MULTI_TENANT_SENTINELS = frozenset({"common", "organizations", "consumers"})
+#
+# "9188040d-6c67-4c5b-b112-36a304b66dad" is Microsoft's well-known MSA
+# (consumer) tenant GUID -- the GUID form of "consumers". It is a valid
+# authority, is not itself one of the word-form sentinels above, and personal
+# Microsoft accounts' `tid` claim equals it -- so without listing it here it
+# would pass both the sentinel check and the tid check, reopening exactly the
+# hole this set exists to close.
+MULTI_TENANT_SENTINELS = frozenset(
+    {"common", "organizations", "consumers", "9188040d-6c67-4c5b-b112-36a304b66dad"}
+)
 
 GRAPH_ME_URL = "https://graph.microsoft.com/v1.0/me"
 GRAPH_PHOTO_METADATA_URL = "https://graph.microsoft.com/v1.0/me/photo"

@@ -3,6 +3,7 @@
 # See the LICENSE file for details.
 
 import os
+import re
 from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
@@ -25,6 +26,14 @@ from plane.entra.constants import (
 from plane.license.utils.instance_value import get_configuration_value
 
 GRAPH_SELECT = "id,displayName,givenName,surname,mail,userPrincipalName,mobilePhone"
+
+# Entra's `tid` claim is always the tenant GUID -- never a domain. A domain-form
+# tenant (e.g. "contoso.onmicrosoft.com") composes a working authority URL but
+# can never equal `tid`, so every login would fail at the tid check with 6902
+# and point whoever is debugging at the wrong problem. Requiring GUID form up
+# front also closes the uppercase-paste mismatch and any path-injection value
+# (e.g. "contoso.com/../common") in one constraint, instead of three.
+_TENANT_GUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 
 class MicrosoftOAuthProvider(OauthAdapter):
@@ -70,16 +79,35 @@ class MicrosoftOAuthProvider(OauthAdapter):
             ]
         )
 
+        # Strip before any validation: a whitespace-only value is truthy, so
+        # checking configuredness on the raw value would let "   " through the
+        # not-configured guard and on into a "//oauth2/v2.0/authorize" URL.
+        MICROSOFT_CLIENT_ID = (MICROSOFT_CLIENT_ID or "").strip()
+        MICROSOFT_CLIENT_SECRET = (MICROSOFT_CLIENT_SECRET or "").strip()
+        MICROSOFT_TENANT_ID = (MICROSOFT_TENANT_ID or "").strip()
+
         if not (MICROSOFT_CLIENT_ID and MICROSOFT_CLIENT_SECRET and MICROSOFT_TENANT_ID):
             raise AuthenticationException(
                 error_code=AUTHENTICATION_ERROR_CODES["MICROSOFT_NOT_CONFIGURED"],
                 error_message="MICROSOFT_NOT_CONFIGURED",
             )
 
-        tenant_id = MICROSOFT_TENANT_ID.strip()
+        # Casefolded once here, compared casefolded against `tid` later -- an
+        # uppercase-pasted GUID is normalized instead of failing the tid check.
+        tenant_id = MICROSOFT_TENANT_ID.casefold()
         # A tenant-scoped authority is the whole security boundary here. These
         # sentinels silently widen it to every Microsoft tenant in existence.
-        if tenant_id.lower() in MULTI_TENANT_SENTINELS:
+        # (The MSA GUID 9188040d-6c67-4c5b-b112-36a304b66dad is the GUID form
+        # of "consumers" -- accepting it would reopen exactly that hole.)
+        if tenant_id in MULTI_TENANT_SENTINELS:
+            raise AuthenticationException(
+                error_code=AUTHENTICATION_ERROR_CODES["MICROSOFT_TENANT_INVALID"],
+                error_message="MICROSOFT_TENANT_INVALID",
+            )
+        # `tid` is always a GUID. A domain value can never match it, and
+        # rejecting non-GUID form here also closes uppercase mismatches and
+        # path-injection values before they ever reach an authority URL.
+        if not _TENANT_GUID_RE.match(tenant_id):
             raise AuthenticationException(
                 error_code=AUTHENTICATION_ERROR_CODES["MICROSOFT_TENANT_INVALID"],
                 error_message="MICROSOFT_TENANT_INVALID",
@@ -123,9 +151,16 @@ class MicrosoftOAuthProvider(OauthAdapter):
         establishes authenticity (OIDC Core 3.1.3.7 permits skipping signature
         validation exactly in this case). What is checked is the claim the
         channel cannot vouch for -- that the tenant is the configured one.
+
+        A missing id_token is an error, not something to skip: this claim is
+        the whole tenant check, so a 2xx token response without one must not
+        silently proceed on the access token alone.
         """
         if not id_token:
-            return
+            raise AuthenticationException(
+                error_code=AUTHENTICATION_ERROR_CODES["MICROSOFT_OAUTH_PROVIDER_ERROR"],
+                error_message="MICROSOFT_OAUTH_PROVIDER_ERROR",
+            )
         try:
             claims = jwt.decode(id_token, options={"verify_signature": False})
         except jwt.PyJWTError:
@@ -133,7 +168,8 @@ class MicrosoftOAuthProvider(OauthAdapter):
                 error_code=AUTHENTICATION_ERROR_CODES["MICROSOFT_OAUTH_PROVIDER_ERROR"],
                 error_message="MICROSOFT_OAUTH_PROVIDER_ERROR",
             )
-        if claims.get("tid") != self.tenant_id:
+        tid = claims.get("tid")
+        if not (isinstance(tid, str) and tid.casefold() == self.tenant_id):
             raise AuthenticationException(
                 error_code=AUTHENTICATION_ERROR_CODES["MICROSOFT_TENANT_INVALID"],
                 error_message="MICROSOFT_TENANT_INVALID",
