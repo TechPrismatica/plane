@@ -20,6 +20,19 @@ function copyAssets() {
   }
 }
 
+const TEMPLATES = [
+  ["scripts/entra/templates/microsoft-config.tsx", "apps/admin/components/authentication/microsoft-config.tsx"],
+  ["scripts/entra/templates/admin-page.tsx", "apps/admin/app/(all)/(dashboard)/authentication/microsoft/page.tsx"],
+  ["scripts/entra/templates/admin-form.tsx", "apps/admin/app/(all)/(dashboard)/authentication/microsoft/form.tsx"],
+];
+
+function writeTemplates() {
+  for (const [source, target] of TEMPLATES) {
+    mkdirSync(dirname(p(target)), { recursive: true });
+    copyFileSync(p(source), p(target));
+  }
+}
+
 export const edits = [
   {
     file: p("packages/types/src/instance/auth.ts"),
@@ -275,6 +288,7 @@ export const edits = [
 const isMain = import.meta.url === `file://${process.argv[1]}`;
 if (isMain) {
   copyAssets();
+  writeTemplates();
 
   let applied = 0;
   try {
