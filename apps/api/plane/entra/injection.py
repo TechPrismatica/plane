@@ -35,6 +35,23 @@ def inject_urls():
             auth_urls.urlpatterns.append(pattern)
 
 
+def inject_config_variables():
+    """Extend the aggregated config-variable list in place.
+
+    `instance_config_variables` is computed at import time as
+    [*core, *extended]. Mutating the list is visible to every module that
+    already imported the name; rebinding it would not be.
+    """
+    from plane.entra.config import microsoft_config_variables
+    from plane.utils.instance_config_variables import instance_config_variables
+
+    existing = {variable["key"] for variable in instance_config_variables}
+    for variable in microsoft_config_variables:
+        if variable["key"] not in existing:
+            instance_config_variables.append(variable)
+
+
 def inject_all():
     inject_error_codes()
+    inject_config_variables()
     inject_urls()

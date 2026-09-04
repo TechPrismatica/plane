@@ -65,3 +65,36 @@ def test_url_injection_does_not_duplicate():
     inject_urls()
     names = [getattr(p, "name", None) for p in auth_urls.urlpatterns]
     assert names.count("microsoft-initiate") == 1
+
+
+@pytest.mark.unit
+def test_config_variables_are_injected():
+    from plane.utils.instance_config_variables import instance_config_variables
+
+    keys = {v["key"] for v in instance_config_variables}
+    assert {
+        "IS_MICROSOFT_ENABLED",
+        "MICROSOFT_CLIENT_ID",
+        "MICROSOFT_CLIENT_SECRET",
+        "MICROSOFT_TENANT_ID",
+        "ENABLE_MICROSOFT_SYNC",
+    } <= keys
+
+
+@pytest.mark.unit
+def test_client_secret_is_marked_encrypted():
+    from plane.utils.instance_config_variables import instance_config_variables
+
+    secret = next(v for v in instance_config_variables if v["key"] == "MICROSOFT_CLIENT_SECRET")
+    assert secret["is_encrypted"] is True
+
+
+@pytest.mark.unit
+def test_config_injection_does_not_duplicate():
+    from plane.entra.injection import inject_config_variables
+    from plane.utils.instance_config_variables import instance_config_variables
+
+    inject_config_variables()
+    inject_config_variables()
+    keys = [v["key"] for v in instance_config_variables]
+    assert keys.count("MICROSOFT_CLIENT_ID") == 1

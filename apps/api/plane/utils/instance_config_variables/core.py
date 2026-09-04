@@ -62,39 +62,6 @@ google_config_variables = [
     },
 ]
 
-microsoft_config_variables = [
-    {
-        "key": "IS_MICROSOFT_ENABLED",
-        "value": os.environ.get("IS_MICROSOFT_ENABLED", "0"),
-        "category": "MICROSOFT",
-        "is_encrypted": False,
-    },
-    {
-        "key": "MICROSOFT_CLIENT_ID",
-        "value": os.environ.get("MICROSOFT_CLIENT_ID"),
-        "category": "MICROSOFT",
-        "is_encrypted": False,
-    },
-    {
-        "key": "MICROSOFT_CLIENT_SECRET",
-        "value": os.environ.get("MICROSOFT_CLIENT_SECRET"),
-        "category": "MICROSOFT",
-        "is_encrypted": True,
-    },
-    {
-        "key": "MICROSOFT_TENANT_ID",
-        "value": os.environ.get("MICROSOFT_TENANT_ID"),
-        "category": "MICROSOFT",
-        "is_encrypted": False,
-    },
-    {
-        "key": "ENABLE_MICROSOFT_SYNC",
-        "value": os.environ.get("ENABLE_MICROSOFT_SYNC", "0"),
-        "category": "MICROSOFT",
-        "is_encrypted": False,
-    },
-]
-
 github_config_variables = [
     {
         "key": "IS_GITHUB_ENABLED",
@@ -290,7 +257,6 @@ core_config_variables = [
     *github_config_variables,
     *gitlab_config_variables,
     *gitea_config_variables,
-    *microsoft_config_variables,
     *smtp_config_variables,
     *llm_config_variables,
     *unsplash_config_variables,
