@@ -31,6 +31,19 @@ def get_default_onboarding():
     }
 
 
+def get_default_theme():
+    # background is a neutral-scale seed, not a literal CSS background color —
+    # it must be light for light mode (near-black here previously produced a
+    # visibly gray --neutral-200/--bg-layer-1 instead of a subtle off-white:
+    # measured oklch L 0.74 vs 0.97 for a light seed).
+    return {
+        "theme": "custom",
+        "primary": "#c6005c",
+        "background": "#f5f5f5",
+        "darkPalette": False,
+    }
+
+
 def get_mobile_default_onboarding():
     return {
         "profile_complete": False,
@@ -224,7 +237,7 @@ class Profile(TimeAuditModel):
     # User
     user = models.OneToOneField("db.User", on_delete=models.CASCADE, related_name="profile")
     # General
-    theme = models.JSONField(default=dict)
+    theme = models.JSONField(default=get_default_theme)
     is_app_rail_docked = models.BooleanField(default=True)
     # Onboarding
     is_tour_completed = models.BooleanField(default=False)

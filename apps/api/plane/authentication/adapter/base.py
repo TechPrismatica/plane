@@ -129,6 +129,7 @@ class Adapter:
             "github": "ENABLE_GITHUB_SYNC",
             "gitlab": "ENABLE_GITLAB_SYNC",
             "gitea": "ENABLE_GITEA_SYNC",
+            "microsoft": "ENABLE_MICROSOFT_SYNC",
         }
         config_key = provider_config_map.get(self.provider)
         if config_key:
@@ -198,7 +199,7 @@ class Adapter:
             # Generate unique filename
             filename = f"{uuid.uuid4().hex}-user-avatar.{extension}"
 
-            storage = S3Storage(request=self.request)
+            storage = S3Storage()
 
             # Create file-like object from the size-bounded buffer
             file_obj = BytesIO(content)
@@ -258,7 +259,7 @@ class Adapter:
         try:
             if user.avatar_asset:
                 asset = FileAsset.objects.get(pk=user.avatar_asset_id)
-                storage = S3Storage(request=self.request)
+                storage = S3Storage()
                 storage.delete_files(object_names=[asset.asset.name])
 
                 # Delete the user avatar
