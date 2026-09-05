@@ -129,7 +129,6 @@ class Adapter:
             "github": "ENABLE_GITHUB_SYNC",
             "gitlab": "ENABLE_GITLAB_SYNC",
             "gitea": "ENABLE_GITEA_SYNC",
-            "microsoft": "ENABLE_MICROSOFT_SYNC",
         }
         config_key = provider_config_map.get(self.provider)
         if config_key:
