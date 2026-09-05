@@ -18,11 +18,18 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   OWNER: techprismatica
+  # Upstream version this branch is based on. This is the ONE place that
+  # needs to change on an upstream bump -- the auto-tag fallback below reads
+  # it instead of repeating the literal, so a rebase can't bump the base
+  # version in one place and leave a stale one baked into the fallback tag.
+  UPSTREAM_VERSION: v1.4.2
 
 jobs:
   codemod:
     name: Apply frontend codemod
     runs-on: ubuntu-22.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -30,6 +37,9 @@ jobs:
           node-version: 22
       # Fails loudly if upstream moved an anchor. Do not make this
       # continue-on-error: a silent miss ships images with no sign-in button.
+      # A first run applying zero edits is ALSO a failure (no --allow-noop
+      # here): it means every marker already matched something it should
+      # not have, on what is supposed to be a fresh checkout.
       - name: Run codemod
         run: node scripts/entra/apply-frontend.mjs
       - name: Verify codemod is idempotent
@@ -40,9 +50,34 @@ jobs:
           # and fail unconditionally -- that would make this check blind to
           # the actual thing it exists to catch (a codemod that keeps
           # changing the tree on repeat runs).
+          #
+          # `git diff --exit-code` only compares tracked working-tree state
+          # to the index, so it never reports untracked files -- on its own
+          # it would pass trivially if this second run created a NEW
+          # untracked file that the first run didn't (e.g. a template the
+          # codemod forgot to write consistently).
+          #
+          # `git add -A` above stages every file the FIRST run produced,
+          # tracked or not, so by the time the second run finishes, the only
+          # thing that can still show up as untracked ("??") is something
+          # THIS run created that the first run didn't. Plain
+          # `git status --porcelain` would also re-list everything staged
+          # from the first run (as "A"/"M") on every invocation regardless of
+          # the second run's behavior, which would fail this check
+          # unconditionally -- so the assertion below greps for "??"
+          # specifically rather than asserting the whole status is empty.
+          #
+          # This second run is the one legitimate zero-apply case, so it
+          # passes --allow-noop to apply-frontend.mjs.
           git add -A
-          node scripts/entra/apply-frontend.mjs
+          node scripts/entra/apply-frontend.mjs --allow-noop
           git diff --exit-code
+          NEW_UNTRACKED="$(git status --porcelain | grep '^??' || true)"
+          if [ -n "$NEW_UNTRACKED" ]; then
+            echo "Second codemod run produced new untracked file(s) the first run did not:"
+            echo "$NEW_UNTRACKED"
+            exit 1
+          fi
       - name: Upload patched tree
         uses: actions/upload-artifact@v4
         with:
@@ -106,7 +141,7 @@ jobs:
           if [ -n "$INPUT_TAG" ]; then
             echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
-            echo "value=v1.4.2-entra.sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            echo "value=${UPSTREAM_VERSION}-entra.sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
           fi
       - uses: docker/build-push-action@v6
         with:

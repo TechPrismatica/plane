@@ -1,5 +1,5 @@
 import { copyFileSync, mkdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, resolve } from "node:path";
 import { applyEdit, AnchorMissError } from "./anchors.mjs";
 
@@ -285,8 +285,19 @@ export const edits = [
 // Guard so importing this module (e.g. from the test suite, to reach the
 // exported `edits` array) never runs the CLI's file-mutating side effects --
 // only running it directly (`node apply-frontend.mjs`) does.
-const isMain = import.meta.url === `file://${process.argv[1]}`;
+//
+// Compared via pathToFileURL rather than a raw template-literal `file://`
+// join: import.meta.url is percent-encoded (spaces become %20, etc.), but
+// process.argv[1] is not, so a checkout path containing a space or
+// non-ASCII character would make the two sides differ, isMain would be
+// false, and the script would exit 0 having done nothing -- CI would then
+// build unpatched images with no signal that anything went wrong.
+const isMain = import.meta.url === pathToFileURL(process.argv[1]).href;
 if (isMain) {
+  // Idempotency-check runs (see .github/workflows/build-entra.yml) pass this
+  // so a legitimate zero-apply second run doesn't trip the guard below.
+  const allowNoop = process.argv.includes("--allow-noop");
+
   copyAssets();
   writeTemplates();
 
@@ -302,4 +313,20 @@ if (isMain) {
     throw error;
   }
   console.log(`[entra codemod] ${applied} edit(s) applied, ${edits.length - applied} already present`);
+
+  // A fresh checkout that applies zero edits is not success -- it means
+  // every marker already matched something it should not have (e.g. the
+  // codemod ran twice without --allow-noop, or upstream now ships something
+  // indistinguishable from our own output). Only the second, idempotency-
+  // verification run is allowed to apply zero edits; a first run must always
+  // apply all of them.
+  if (applied === 0 && !allowNoop) {
+    console.error(
+      "\n[entra codemod] FAILED\napplied 0 edits on what should be a fresh checkout.\n" +
+        "A fresh checkout must apply every edit; zero means every marker matched\n" +
+        "something it should not have. If this is intentionally the second\n" +
+        "(idempotency-verification) run, pass --allow-noop.\n"
+    );
+    process.exit(1);
+  }
 }

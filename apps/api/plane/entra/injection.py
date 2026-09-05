@@ -13,12 +13,37 @@ import os
 from plane.entra.constants import ENTRA_ERROR_CODES
 from plane.license.utils.instance_value import get_configuration_value
 
+# Track what THIS plugin placed in each shared, mutable collection it
+# extends -- as distinct from what was merely already there.
+#
+# `setdefault`/"skip if present" alone cannot tell true idempotency (this
+# plugin's own previous ready() call) apart from a genuine collision (some
+# other code got there first). That distinction matters: Plane already ships
+# Google, GitHub, GitLab and Gitea, so Microsoft is the obvious next provider
+# for upstream to add. If it ever does, upstream's own "microsoft-initiate"
+# route / MICROSOFT_* config keys / error codes would silently win a bare
+# "skip if present" guard, and this plugin's tenant enforcement would be
+# bypassed entirely -- on a green build. These sets let each guard tell the
+# two cases apart and raise on the latter.
+_placed_error_codes = set()
+_placed_config_keys = set()
+_placed_url_names = set()
+
 
 def inject_error_codes():
     from plane.authentication.adapter.error import AUTHENTICATION_ERROR_CODES
 
     for name, code in ENTRA_ERROR_CODES.items():
-        AUTHENTICATION_ERROR_CODES.setdefault(name, code)
+        if name in _placed_error_codes:
+            continue
+        if name in AUTHENTICATION_ERROR_CODES:
+            raise RuntimeError(
+                f"plane.entra: error code {name!r} already exists in AUTHENTICATION_ERROR_CODES but was "
+                "not placed by plane.entra. Upstream appears to have introduced its own Microsoft "
+                "provider -- reconcile plane.entra with it before proceeding."
+            )
+        AUTHENTICATION_ERROR_CODES[name] = code
+        _placed_error_codes.add(name)
 
 
 def inject_urls():
@@ -34,8 +59,18 @@ def inject_urls():
 
     existing = {getattr(pattern, "name", None) for pattern in auth_urls.urlpatterns}
     for pattern in entra_urlpatterns:
-        if getattr(pattern, "name", None) not in existing:
-            auth_urls.urlpatterns.append(pattern)
+        name = getattr(pattern, "name", None)
+        if name in _placed_url_names:
+            continue
+        if name in existing:
+            raise RuntimeError(
+                f"plane.entra: URL name {name!r} already exists in plane.authentication's urlconf but "
+                "was not placed by plane.entra. Upstream appears to have introduced its own Microsoft "
+                "provider -- reconcile plane.entra with it before proceeding."
+            )
+        auth_urls.urlpatterns.append(pattern)
+        _placed_url_names.add(name)
+        existing.add(name)
 
 
 def inject_config_variables():
@@ -50,8 +85,18 @@ def inject_config_variables():
 
     existing = {variable["key"] for variable in instance_config_variables}
     for variable in microsoft_config_variables:
-        if variable["key"] not in existing:
-            instance_config_variables.append(variable)
+        key = variable["key"]
+        if key in _placed_config_keys:
+            continue
+        if key in existing:
+            raise RuntimeError(
+                f"plane.entra: config key {key!r} already exists in instance_config_variables but was "
+                "not placed by plane.entra. Upstream appears to have introduced its own Microsoft "
+                "provider -- reconcile plane.entra with it before proceeding."
+            )
+        instance_config_variables.append(variable)
+        _placed_config_keys.add(key)
+        existing.add(key)
 
 
 def patch_instance_endpoint():

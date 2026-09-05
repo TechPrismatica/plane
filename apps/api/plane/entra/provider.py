@@ -25,7 +25,7 @@ from plane.entra.constants import (
 )
 from plane.license.utils.instance_value import get_configuration_value
 
-GRAPH_SELECT = "id,displayName,givenName,surname,mail,userPrincipalName,mobilePhone"
+GRAPH_SELECT = "id,displayName,givenName,surname,mail,userPrincipalName"
 
 # Entra's `tid` claim is always the tenant GUID -- never a domain. A domain-form
 # tenant (e.g. "contoso.onmicrosoft.com") composes a working authority URL but

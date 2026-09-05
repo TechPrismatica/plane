@@ -26,7 +26,21 @@ assert.throws(
   (e) => e instanceof AnchorMissError && e.message.includes("sample.ts"),
 );
 
-// 4. invariant: within a single file, no edit's marker may be a substring of
+// 4. an ambiguous anchor (occurring more than once) throws AnchorMissError
+// naming the occurrence count, rather than silently picking the first match.
+writeFileSync(file, `export type T =\n  | "google"\n  | "gitea";\n  | "gitea";\n`);
+assert.throws(
+  () => applyEdit({ file, find: `  | "gitea";`, insert: `  | "gitea"\n  | "microsoft";`, marker: "microsoft" }),
+  (e) => e instanceof AnchorMissError && e.message.includes("AMBIGUOUS") && e.message.includes("2"),
+);
+// and the file must be untouched -- an ambiguous anchor must fail before any
+// write, not partially apply then throw.
+assert.equal(
+  readFileSync(file, "utf8"),
+  `export type T =\n  | "google"\n  | "gitea";\n  | "gitea";\n`
+);
+
+// 5. invariant: within a single file, no edit's marker may be a substring of
 // any *other* edit's insert. If it is, that other edit's insert makes this
 // edit's idempotency check look satisfied even when its own find/insert has
 // never run -- so it silently, permanently no-ops the moment the other edit
@@ -55,4 +69,4 @@ assert.throws(
   );
 }
 
-console.log("codemod harness: 4 passed");
+console.log("codemod harness: 5 passed");
