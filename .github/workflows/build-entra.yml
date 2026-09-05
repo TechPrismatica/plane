@@ -48,7 +48,7 @@ jobs:
         with:
           name: patched-tree
           include-hidden-files: true
-          # .git is excluded: it is not needed to build any image (all four
+          # .git is excluded: it is not needed to build any image (all five
           # Dockerfiles are content-only, none shells out to git) and it is
           # by far the largest thing in the tree, so shipping it through the
           # artifact would only slow every download down for nothing.
@@ -78,6 +78,14 @@ jobs:
             context: .
           - component: admin
             dockerfile: ./apps/admin/Dockerfile.admin
+            context: .
+          # live carries no Entra change. It is built anyway because the chart
+          # renders EVERY image as <image>:{{ .Values.planeVersion }} with no
+          # per-component tag override -- so our tag lands on live too, and
+          # upstream never published that tag. Building the unmodified source
+          # is cheaper than republishing upstream's image under our tag.
+          - component: live
+            dockerfile: ./apps/live/Dockerfile.live
             context: .
     steps:
       - name: Download patched tree
